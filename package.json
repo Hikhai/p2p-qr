@@ -1,0 +1,23 @@
+{
+  "name": "binance-p2p-manager",
+  "version": "1.0.1",
+  "description": "Quản lý giao dịch Binance P2P với tính năng đồng bộ tự động",
+  "type": "module",
+  "scripts": {
+    "fe:dev": "cd fe && vite dev",
+    "fe:build": "cd fe && npm run build",
+    "fe:check": "cd fe && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@tauri-apps/plugin-opener": "^2",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

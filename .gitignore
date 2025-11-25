@@ -1,0 +1,40 @@
+.DS_Store
+node_modules
+/build
+/.svelte-kit
+/package
+.env
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Tauri
+/src-tauri/target/
+/src-tauri/Cargo.lock
+
+# Rust
+target/
+Cargo.lock
+
+# Build outputs
+/dist/
+
+# Local SQLite database
+p2p_app.db
+
+# Local seed credentials (DO NOT COMMIT)
+db/seed_credentials.json
+
+# Logs
+*.log
+
+# Test files
+test-*.mjs
+test-*.js
+ws-test.mjs
+rustup-init.exe
+
+# IDE
+.vscode/
+.idea/
