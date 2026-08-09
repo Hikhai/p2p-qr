@@ -24,18 +24,26 @@
     warning: '#f59e0b'
   };
   
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
   onMount(() => {
     if (duration > 0) {
-      setTimeout(() => {
+      hideTimer = setTimeout(() => {
         visible = false;
-        setTimeout(onClose, 300);
+        closeTimer = setTimeout(onClose, 300);
       }, duration);
     }
+    return () => {
+      if (hideTimer) clearTimeout(hideTimer);
+      if (closeTimer) clearTimeout(closeTimer);
+    };
   });
-  
+
   function handleClose() {
+    if (hideTimer) clearTimeout(hideTimer);
     visible = false;
-    setTimeout(onClose, 300);
+    closeTimer = setTimeout(onClose, 300);
   }
 </script>
 
@@ -53,10 +61,8 @@
 
 <style>
   .toast {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 10000;
+    /* Không dùng fixed ở đây — ToastContainer đã xếp chồng các toast. */
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;

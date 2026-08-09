@@ -1,124 +1,81 @@
 <script lang="ts">
   import { fade, slide } from 'svelte/transition';
   import Pagination from './Pagination.svelte';
-  
-  export let list: any[] = [];
-  export let onOrderClick: ((order: any) => void) | undefined = undefined;
+  import { formatAsset, formatDateTime, formatFiat, pricePerUnit } from './format';
+  import { IN_PROGRESS_STATUS, type Order } from './types';
+
+  export let list: Order[] = [];
+  export let onOrderClick: ((order: Order) => void) | undefined = undefined;
   export let itemsPerPage: number = 20;
-  
+
   let currentPage = 1;
   let searchQuery = '';
   let filterStatus: string = 'all';
-  
-  const nfFiat = new Intl.NumberFormat('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  
-  // Optimize: Only compute search query lowercase once
+
   $: searchQueryLower = searchQuery.trim().toLowerCase();
-  
-  // Filter and search logic - optimized
+
   $: filteredList = list.filter(order => {
-    // Status filter (fast check first)
     if (filterStatus !== 'all') {
       const statusCode = order.status_code;
-      if (filterStatus === 'inprogress' && ![1, 2, 3].includes(statusCode)) {
-        return false;
-      } else if (filterStatus === 'completed' && statusCode !== 4) {
-        return false;
-      } else if (filterStatus === 'cancelled' && ![5, 6].includes(statusCode)) {
-        return false;
-      }
+      if (filterStatus === 'inprogress' && !IN_PROGRESS_STATUS.includes(statusCode)) return false;
+      if (filterStatus === 'completed' && statusCode !== 4) return false;
+      if (filterStatus === 'cancelled' && ![5, 6].includes(statusCode)) return false;
     }
-    
-    // Search filter (skip if no search query)
+
     if (searchQueryLower) {
-      // Cache toLowerCase() results
-      const orderNum = order.order_number?.toString() || '';
-      const seller = order.seller_nickname?.toLowerCase() || '';
-      const buyer = order.buyer_nickname?.toLowerCase() || '';
-      const asset = order.asset?.toLowerCase() || '';
-      const fiat = order.fiat?.toLowerCase() || '';
-      
       return (
-        orderNum.includes(searchQueryLower) ||
-        seller.includes(searchQueryLower) ||
-        buyer.includes(searchQueryLower) ||
-        asset.includes(searchQueryLower) ||
-        fiat.includes(searchQueryLower)
+        order.order_number.toLowerCase().includes(searchQueryLower) ||
+        order.seller_nickname.toLowerCase().includes(searchQueryLower) ||
+        order.buyer_nickname.toLowerCase().includes(searchQueryLower) ||
+        order.asset.toLowerCase().includes(searchQueryLower) ||
+        order.fiat.toLowerCase().includes(searchQueryLower)
       );
     }
-    
+
     return true;
   });
-  
-  // Pagination logic
-  $: totalPages = Math.ceil(filteredList.length / itemsPerPage);
+
+  $: totalPages = Math.max(1, Math.ceil(filteredList.length / itemsPerPage));
   $: paginatedList = filteredList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   $: if (filteredList.length > 0 && currentPage > totalPages) {
     currentPage = Math.max(1, totalPages);
   }
-  
-  // Reset to page 1 when filters change
+
   $: if (searchQueryLower || filterStatus) {
     currentPage = 1;
   }
-  
+
   function handlePageChange(page: number) {
     currentPage = page;
   }
-  
+
   function clearFilters() {
     searchQuery = '';
     filterStatus = 'all';
   }
-  
-  function formatAsset(value: string | number, asset: string) {
-    if (!value) return '0';
-    const num = typeof value === 'string' ? parseFloat(value) : value;
-    if (isNaN(num)) return '0';
-    
-    let digits = 8; // Mặc định
-    if (asset === 'USDT' || asset === 'USDC' || asset === 'BUSD') {
-      digits = 2; // Stablecoin
-    } else if (asset === 'BTC') {
-      digits = 6; // BTC
-    } else if (asset === 'ETH') {
-      digits = 4; // ETH
-    }
-    
-    return new Intl.NumberFormat('vi-VN', { 
-      minimumFractionDigits: 0,
-      maximumFractionDigits: digits 
-    }).format(num);
+
+  /** Đối tác giao dịch: lệnh mua thì nhìn người bán, lệnh bán thì nhìn người mua. */
+  function partnerName(o: Order) {
+    return o.trade_type === 'BUY' ? o.seller_nickname : o.buyer_nickname;
   }
-  function fmtDate(ms?: number) {
-    if (!ms) return '';
-    try { return new Date(ms).toLocaleString('vi-VN'); } catch { return '' }
-  }
-  function partnerName(o:any) { return o.seller_nickname || o.buyer_nickname }
-  function toNum(s?: string) { if (!s) return 0; const n = Number(s); return isFinite(n) ? n : 0; }
-  function pricePerUnit(o:any) {
-    const p = toNum(o.price);
-    if (p > 0) return p;
-    const total = toNum(o.total_fiat);
-    const amt = toNum(o.amount_asset);
-    if (total > 0 && amt > 0) return total / amt;
-    return 0;
-  }
-  function statusText(o:any) {
-    // Backend trả về status_label đã được mapping từ StageMap
-    const label = (o.status_label || '').toString();
-    if (label && !label.startsWith('Code')) return label;
-    
-    // Fallback với trạng thái chính xác như sàn Binance
+
+  function statusText(o: Order) {
+    if (o.status_label) return o.status_label;
     switch (o.status_code) {
       case 1: return 'Đang chờ thanh toán';
-      case 2: return 'Đã thanh toán';
-      case 3: return 'Đang xác minh';
+      case 2: return 'Chờ người bán xác nhận';
+      case 3: return 'Đang giải phóng coin';
       case 4: return 'Đã hoàn thành';
-      case 5: return 'Đã hủy';
-      case 6: return 'Đã hủy bởi hệ thống';
+      case 5: return 'Đang khiếu nại';
+      case 6: return 'Đã hủy';
+      case 7: return 'Hủy bởi hệ thống';
       default: return `Không xác định (${o.status_code})`;
     }
+  }
+
+  /** Class CSS ổn định theo mã trạng thái, không phụ thuộc chuỗi tiếng Việt. */
+  function statusClass(o: Order) {
+    return `status-code-${o.status_code}`;
   }
 </script>
 
@@ -213,18 +170,19 @@
               }}>
             <td>
               <div class="trade-type" class:buy={o.trade_type === 'BUY'} class:sell={o.trade_type === 'SELL'}>
-                {o.trade_type === 'BUY' ? '🟢 MUA' : '🔴 BÁN'}
+                <span class="side-dot" class:buy={o.trade_type === 'BUY'} class:sell={o.trade_type === 'SELL'}></span>
+                {o.trade_type === 'BUY' ? 'MUA' : 'BÁN'}
               </div>
-              <div class="date-text">{fmtDate(o.create_time_ms)}</div>
+              <div class="date-text">{formatDateTime(o.create_time_ms)}</div>
             </td>
             <td class="order-number">{o.order_number}</td>
-            <td class="price-cell">{nfFiat.format(pricePerUnit(o))} <span class="fiat">{o.fiat}</span></td>
+            <td class="price-cell">{formatFiat(pricePerUnit(o.price, o.total_fiat, o.amount_asset))} <span class="fiat">{o.fiat}</span></td>
             <td>
-              <div class="amount-fiat">{nfFiat.format(toNum(o.total_fiat))} {o.fiat}</div>
+              <div class="amount-fiat">{formatFiat(o.total_fiat)} {o.fiat}</div>
               <div class="amount-crypto">{formatAsset(o.amount_asset, o.asset)} {o.asset}</div>
             </td>
             <td class="partner-name">{partnerName(o) || '-'}</td>
-            <td class={"status-cell status-"+statusText(o).replace(/\s+/g, '-')}>{statusText(o)}</td>
+            <td class={"status-cell " + statusClass(o)}>{statusText(o)}</td>
           </tr>
         {/each}
       </tbody>
@@ -471,9 +429,20 @@
     font-size: 12px;
     padding: 4px 8px;
     border-radius: 4px;
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     margin-bottom: 4px;
   }
+
+  .side-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .side-dot.buy { background: #10b981; }
+  .side-dot.sell { background: #ef4444; }
   
   .trade-type.buy {
     color: #10b981;
@@ -531,49 +500,32 @@
     text-align: center;
   }
   
-  /* Trạng thái theo Binance P2P */
-  .status-Đang-chờ-thanh-toán { 
-    color: #60a5fa; 
+  .status-code-1 {
+    color: #60a5fa;
     background: rgba(37, 99, 235, 0.15);
     border: 1px solid rgba(37, 99, 235, 0.3);
   }
-  
-  .status-Đã-thanh-toán { 
-    color: #fbbf24; 
+  .status-code-2 {
+    color: #fbbf24;
     background: rgba(251, 191, 36, 0.15);
     border: 1px solid rgba(251, 191, 36, 0.3);
   }
-  
-  .status-Đang-xác-minh { 
-    color: #f97316; 
+  .status-code-3 {
+    color: #f97316;
     background: rgba(249, 115, 22, 0.15);
     border: 1px solid rgba(249, 115, 22, 0.3);
   }
-  
-  .status-Đã-hoàn-thành { 
-    color: #10b981; 
+  .status-code-4 {
+    color: #10b981;
     background: rgba(16, 185, 129, 0.15);
     border: 1px solid rgba(16, 185, 129, 0.3);
   }
-  
-  .status-Đã-hủy, .status-Đã-hủy-bởi-hệ-thống { 
-    color: #ef4444; 
+  .status-code-5,
+  .status-code-6 {
+    color: #ef4444;
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.3);
   }
-  
-  .status-Không-xác-định { 
-    color: #6b7280; 
-    background: rgba(107, 114, 128, 0.15);
-    border: 1px solid rgba(107, 114, 128, 0.3);
-  }
-  
-  /* Backup cho code numbers */
-  .status-Code-1 { color: #60a5fa; }
-  .status-Code-2 { color: #fbbf24; }
-  .status-Code-3 { color: #f97316; }
-  .status-Code-4 { color: #10b981; }
-  .status-Code-5, .status-Code-6 { color: #ef4444; }
   
   @media (max-width: 768px) {
     table {

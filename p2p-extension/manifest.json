@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "P2P Assistant Bridge",
+  "version": "0.2.3",
+  "description": "Hook network Binance P2P và gửi dữ liệu lệnh về ứng dụng local (chỉ đọc).",
+  "host_permissions": [
+    "https://p2p.binance.com/*",
+    "https://www.binance.com/*",
+    "https://c2c.binance.com/*",
+    "https://c2c-admin.binance.com/*",
+    "http://127.0.0.1:1425/*"
+  ],
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "P2P Assistant - Monitoring Binance P2P"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://p2p.binance.com/*",
+        "https://www.binance.com/*p2p*",
+        "https://c2c.binance.com/*",
+        "https://c2c-admin.binance.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js", "scraper.js"],
+      "matches": ["https://p2p.binance.com/*", "https://www.binance.com/*", "https://c2c.binance.com/*", "https://c2c-admin.binance.com/*"]
+    }
+  ]
+}

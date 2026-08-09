@@ -1,18 +1,9 @@
 [package]
-name = "tauri-app"
+name = "p2p-qr"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Quản lý lệnh Binance P2P và sinh QR chuyển khoản VietQR"
+authors = ["Hikhai"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "tauri_app_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
@@ -21,31 +12,32 @@ tauri-build = { version = "2.0", features = [] }
 tauri = { version = "2.0", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-# Thêm mới cho WebSocket & async
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tokio-tungstenite = "0.21"
-tungstenite = "0.21"
-futures = "0.3"
 anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
 
-# HTTP server for extension communication
+# Cầu nối HTTP với extension
 axum = "0.7"
-tower = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
-sha1 = "0.10"
+
+# Gọi API Binance
 reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 chrono = { version = "0.4", features = ["clock"] }
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros"] }
-base64 = "0.22"
-urlencoding = "2.1"
+
+# Lưu trữ
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate"] }
 dirs = "5.0"
+# Kho khoá của hệ điều hành cho API key/secret của Binance.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# Chỉ còn dùng để đọc credentials base64 do bản cũ ghi vào SQLite và chuyển sang keyring.
+base64 = "0.22"
+
+# Log có cấp độ, thay cho println!
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
-# Đây là mặc định của template, giữ nguyên
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-

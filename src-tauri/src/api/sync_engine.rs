@@ -1,208 +1,220 @@
 use anyhow::Result;
 use chrono::Utc;
-use crate::api::c2c_api_client::C2CApiClient;
-use crate::orders::repo::OrderRepo;
-use sqlx::Row;
 use serde_json::Value;
+use sqlx::Row;
+use std::time::Duration;
+use tracing::{debug, info, warn};
+
+use crate::api::c2c_api_client::{ApiError, C2CApiClient};
+use crate::orders::repo::OrderRepo;
+
+const PAGE_SIZE: u32 = 20;
+const MAX_ATTEMPTS: u32 = 3;
+/// Nghỉ giữa hai trang để không đụng giới hạn tần suất của Binance.
+const PAGE_DELAY: Duration = Duration::from_millis(100);
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
 pub struct SyncEngine<'a> {
     pub client: &'a C2CApiClient,
-    pub repo: &'a OrderRepo
+    pub repo: &'a OrderRepo,
 }
 
 impl<'a> SyncEngine<'a> {
-    pub fn new(client: &'a C2CApiClient, repo: &'a OrderRepo) -> Self { Self { client, repo } }
+    pub fn new(client: &'a C2CApiClient, repo: &'a OrderRepo) -> Self {
+        Self { client, repo }
+    }
 
-    /// Fetch with retry and exponential backoff
-    async fn fetch_with_retry(
+    /// Gọi API, chỉ thử lại với những lỗi có khả năng tự khỏi.
+    ///
+    /// Bản trước thử lại mọi lỗi ba lần, kể cả sai chữ ký — vừa vô ích vừa làm mỗi
+    /// trang mất thêm 3 giây khi credentials sai.
+    async fn fetch_page(
         &self,
         trade_type: &str,
         start: i64,
         end: i64,
         page: u32,
-        rows: u32,
-        max_retries: u32,
-    ) -> Result<Value> {
-        let mut retries = 0;
-        let mut delay = 1000; // 1s
+    ) -> Result<Value, ApiError> {
+        let mut delay = Duration::from_secs(1);
 
-        loop {
-            match self.client.list_user_order_history(trade_type, start, end, page, rows).await {
+        for attempt in 1..=MAX_ATTEMPTS {
+            match self
+                .client
+                .list_user_order_history(trade_type, start, end, page, PAGE_SIZE)
+                .await
+            {
                 Ok(res) => return Ok(res),
-                Err(e) => {
-                    retries += 1;
-                    if retries >= max_retries {
-                        return Err(e);
+                Err(err) => {
+                    if !err.kind.is_retryable() || attempt == MAX_ATTEMPTS {
+                        return Err(err);
                     }
-                    println!("[SYNC] Retry {}/{} after {}ms: {}", retries, max_retries, delay, e);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
-                    delay *= 2; // Exponential backoff
+
+                    // Lệch giờ thì đồng bộ lại đồng hồ trước khi thử lại, nếu không
+                    // lần sau cũng sẽ lệch y như vậy.
+                    if err.kind == crate::api::c2c_api_client::ApiFailure::ClockSkew {
+                        if let Err(e) = self.client.sync_time().await {
+                            warn!(error = %e, "không đồng bộ lại được giờ");
+                        }
+                    }
+
+                    warn!(
+                        attempt,
+                        max = MAX_ATTEMPTS,
+                        delay_ms = delay.as_millis(),
+                        error = %err,
+                        "thử lại lời gọi API"
+                    );
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
                 }
             }
         }
+
+        unreachable!("vòng lặp luôn trả về ở lần thử cuối")
     }
 
-    /// Extract data array from API response
     fn extract_data_array(res: &Value) -> Vec<Value> {
         res.get("data")
             .and_then(|d| {
-                if let Some(nested) = d.get("data").and_then(|x| x.as_array()).cloned() {
-                    Some(nested)
-                } else {
-                    d.as_array().cloned()
-                }
+                d.get("data")
+                    .and_then(|x| x.as_array())
+                    .cloned()
+                    .or_else(|| d.as_array().cloned())
             })
             .unwrap_or_default()
     }
 
-    /// Extract total count from API response
     fn extract_total(res: &Value) -> Option<i64> {
         res.get("data")
             .and_then(|d| d.get("total").and_then(|x| x.as_i64()))
             .or_else(|| res.get("total").and_then(|x| x.as_i64()))
     }
 
-    /// Sync a specific time chunk
-    async fn sync_chunk(&self, trade_type: &str, start: i64, end: i64) -> Result<()> {
-        let rows: u32 = 20; // Smaller page size for stability
+    /// Đồng bộ một khoảng thời gian, trả về số lệnh mới hoặc có thay đổi.
+    async fn sync_chunk(&self, trade_type: &str, start: i64, end: i64) -> Result<u64> {
         let mut page = 1;
         let mut fetched = 0i64;
+        let mut changed = 0u64;
 
         loop {
-            let res = self.fetch_with_retry(trade_type, start, end, page, rows, 3).await?;
+            let res = self
+                .fetch_page(trade_type, start, end, page)
+                .await
+                .map_err(anyhow::Error::new)?;
 
-            let data_vec = Self::extract_data_array(&res);
-            let total_opt = Self::extract_total(&res);
-
-            if data_vec.is_empty() {
-                println!("[SYNC] No more data at page {}", page);
+            let data = Self::extract_data_array(&res);
+            if data.is_empty() {
                 break;
             }
 
-            for order in &data_vec {
-                self.repo.upsert_from_api(order, end).await?;
-            }
+            changed += self.repo.upsert_many(&data, end).await?;
 
-            let page_size = data_vec.len() as i64;
+            let page_size = data.len() as i64;
             fetched += page_size;
+            debug!(trade_type, page, page_size, "đã đồng bộ một trang");
 
-            println!("[SYNC] {} page {}: fetched {} items (total: {})", 
-                trade_type, page, page_size, 
-                total_opt.map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string())
-            );
-
-            // Stop conditions
-            if let Some(total) = total_opt {
-                if fetched >= total {
-                    println!("[SYNC] Reached total count: {}/{}", fetched, total);
-                    break;
-                }
-            } else if page_size < (rows as i64) {
-                println!("[SYNC] Last page detected (partial page: {})", page_size);
-                break;
+            match Self::extract_total(&res) {
+                Some(total) if fetched >= total => break,
+                None if page_size < PAGE_SIZE as i64 => break,
+                _ => {}
             }
 
             page += 1;
-
-            // Rate limit protection: 100ms between requests
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(PAGE_DELAY).await;
         }
 
-        println!("[SYNC] Completed {} chunk: {} orders total", trade_type, fetched);
-        Ok(())
+        Ok(changed)
     }
 
-    /// Force initial sync with chunked approach
-    pub async fn force_initial_sync(&self, days: i64) -> Result<()> {
-        let chunk_days = 7; // Sync 7 days at a time for stability
+    /// Đồng bộ lại toàn bộ lịch sử trong `days` ngày gần nhất.
+    ///
+    /// Bản trước chạy `DELETE FROM orders` **trước khi** gọi API. Nếu mạng lỗi ở
+    /// giữa, dữ liệu cũ đã mất mà dữ liệu mới chưa về. Ở đây ghi trước, rồi mới cắt
+    /// phần nằm ngoài cửa sổ, nên không có thời điểm nào bảng bị trống.
+    pub async fn force_initial_sync(&self, days: i64) -> Result<u64> {
+        let days = days.clamp(1, 365);
+        let chunk_days = 7;
         let now = Utc::now().timestamp_millis();
-
-        // ✅ Clear ALL old data first before syncing fresh data
-        // This ensures we only keep exactly what user requested (X days)
-        println!("[SYNC] Clearing all old orders before fresh sync...");
-        sqlx::query("DELETE FROM orders")
-            .execute(self.repo.pool())
-            .await?;
-        println!("[SYNC] Old orders cleared. Starting fresh sync for {} days...", days);
+        let mut changed = 0u64;
 
         for trade in ["BUY", "SELL"] {
-            println!("[SYNC] Starting force_initial_sync for {} ({} days)", trade, days);
             let mut current_days = 0;
-
             while current_days < days {
-                let end_time = now - (current_days * 24 * 60 * 60 * 1000);
+                let end_time = now - (current_days * DAY_MS);
                 let chunk_end = (current_days + chunk_days).min(days);
-                let start_time = now - (chunk_end * 24 * 60 * 60 * 1000);
+                let start_time = now - (chunk_end * DAY_MS);
 
-                println!("[SYNC] Syncing {} from {} to {} days ago", trade, current_days, chunk_end);
-
-                self.sync_chunk(trade, start_time, end_time).await?;
-
+                changed += self.sync_chunk(trade, start_time, end_time).await?;
                 current_days = chunk_end;
             }
 
-            // ✅ IMPORTANT: Set sync window to "now" after force sync
-            // This prevents incremental_sync from re-syncing the same data
-            let oldest_time = now - (days * 24 * 60 * 60 * 1000);
-            self.set_sync_window(trade, oldest_time, now, now).await?;
-
-            println!("[SYNC] Completed force_initial_sync for {}", trade);
+            // Đặt mốc đồng bộ tới hiện tại để incremental_sync không lấy lại từ đầu.
+            let oldest = now - (days * DAY_MS);
+            self.set_sync_window(trade, oldest, now).await?;
         }
 
-        Ok(())
+        let removed = self.repo.delete_older_than(now - (days * DAY_MS)).await?;
+        info!(days, changed, removed, "hoàn tất đồng bộ lại toàn bộ");
+        Ok(changed)
     }
 
-    /// Incremental sync: fetch orders newer than last sync timestamp
-    pub async fn incremental_sync(&self) -> Result<()> {
+    /// Lấy các lệnh phát sinh từ lần đồng bộ trước tới nay.
+    pub async fn incremental_sync(&self) -> Result<u64> {
         let now = Utc::now().timestamp_millis();
+        let mut changed = 0u64;
 
         for trade in ["BUY", "SELL"] {
-            // Get last sync time, default to 7 days ago
-            let last = self.get_sync_window(trade).await?
-                .unwrap_or(now - 7 * 24 * 60 * 60 * 1000);
+            let last = self
+                .get_sync_window(trade)
+                .await?
+                .unwrap_or(now - 7 * DAY_MS);
 
-            println!("[INCREMENTAL] Syncing {} from {} to {}", trade, last, now);
-
-            self.sync_chunk(trade, last, now).await?;
-
-            // CRITICAL: Always update to "now" after successful sync
-            // This ensures we don't re-sync the same window next time
-            self.set_sync_window(trade, last, now, now).await?;
+            changed += self.sync_chunk(trade, last, now).await?;
+            self.set_sync_window(trade, last, now).await?;
         }
 
-        Ok(())
+        Ok(changed)
     }
 
-    /// Active poll: refresh orders in last 24 hours (catches in-progress and recent status changes)
-    pub async fn active_poll(&self) -> Result<()> {
+    /// Làm mới các lệnh trong 24 giờ gần nhất để bắt thay đổi trạng thái.
+    pub async fn active_poll(&self) -> Result<u64> {
         let now = Utc::now().timestamp_millis();
+        let start = now - DAY_MS;
+        let mut changed = 0u64;
 
         for trade in ["BUY", "SELL"] {
-            // Strategy: Only query last 24 hours for active orders
-            // This avoids querying too much old data
-            let start = now - 24 * 60 * 60 * 1000;
-
-            println!("[ACTIVE_POLL] Checking {} orders in last 24h", trade);
-
-            self.sync_chunk(trade, start, now).await?;
+            changed += self.sync_chunk(trade, start, now).await?;
         }
 
-        Ok(())
+        Ok(changed)
     }
 
     async fn get_sync_window(&self, trade: &str) -> Result<Option<i64>> {
         let row = sqlx::query("SELECT last_end_timestamp FROM sync_state WHERE id = ?1")
-            .bind(format!("{}_WIN", trade))
-            .fetch_optional(self.repo.pool()).await?;
-        Ok(row.and_then(|r| r.get::<Option<i64>,_>("last_end_timestamp")))
+            .bind(format!("{trade}_WIN"))
+            .fetch_optional(self.repo.pool())
+            .await?;
+        Ok(row.and_then(|r| r.get::<Option<i64>, _>("last_end_timestamp")))
     }
 
-    async fn set_sync_window(&self, trade: &str, start: i64, end: i64, newest: i64) -> Result<()> {
+    async fn set_sync_window(&self, trade: &str, start: i64, end: i64) -> Result<()> {
         let now = Utc::now().timestamp_millis();
-        sqlx::query(r#"INSERT INTO sync_state(id, last_start_timestamp, last_end_timestamp, last_complete_ts) VALUES (?1, ?2, ?3, ?4)
-            ON CONFLICT(id) DO UPDATE SET last_start_timestamp=excluded.last_start_timestamp, last_end_timestamp=excluded.last_end_timestamp, last_complete_ts=excluded.last_complete_ts"#)
-            .bind(format!("{}_WIN", trade)).bind(start).bind(newest.max(end)).bind(now)
-            .execute(self.repo.pool()).await?;
+        sqlx::query(
+            r#"
+            INSERT INTO sync_state (id, last_start_timestamp, last_end_timestamp, last_complete_ts)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(id) DO UPDATE SET
+                last_start_timestamp = excluded.last_start_timestamp,
+                last_end_timestamp   = excluded.last_end_timestamp,
+                last_complete_ts     = excluded.last_complete_ts
+            "#,
+        )
+        .bind(format!("{trade}_WIN"))
+        .bind(start)
+        .bind(end)
+        .bind(now)
+        .execute(self.repo.pool())
+        .await?;
         Ok(())
     }
 }
