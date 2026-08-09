@@ -1,53 +1,84 @@
-# P2P Assistant (Tauri + SvelteKit)
+# Binance P2P Manager
 
-Local desktop helper to capture and display Binance P2P order list & payment info using a companion browser extension and a lightweight Rust WebSocket server.
+Ứng dụng desktop (Tauri 2 + SvelteKit + Rust) để quản lý lệnh Binance P2P, đồng bộ từ API, nhận thông tin thanh toán từ Chrome extension, và sinh mã VietQR chuyển khoản.
 
-## Monorepo layout
+**Version:** 1.0.1 · **Platform:** Windows 10/11 x64
 
-- fe/ — SvelteKit frontend + browser extension
-	- src/ … app UI
-	- static/ … assets
-	- p2p-extension/ … Chrome extension (MV3)
-- src-tauri/ — Rust + Tauri backend (desktop shell, scheduler, DB API)
-- db/ — database artifacts
-	- migrations/ … SQL migrations
-	- stage_map.json … runtime status label mapping
+## Tính năng chính
 
-## Architecture
-* Browser Extension (MV3) injects hooks for fetch / XHR to capture relevant C2C endpoints.
-* Extension forwards compact JSON payloads via `ws://127.0.0.1:8123` to the Tauri app.
-* Rust backend stores to SQLite and runs schedulers (incremental sync + active polling).
-* SvelteKit frontend subscribes to backend events and renders the order table.
+- Đồng bộ lệnh BUY/SELL từ Binance C2C API (lần đầu + poll 15s / incremental 60s)
+- Hiển thị trạng thái đúng (`BUYER_PAYED` → chờ người bán xác nhận, …)
+- Chrome extension bắt thông tin STK/ngân hàng ngay khi vào trang thanh toán
+- Sinh VietQR; nội dung CK theo config `{tên chủ TK} chuyen tien` (hoặc mặc định app ngân hàng nếu chưa cấu hình)
+- Đổi API key → tự xoá dữ liệu tài khoản cũ, tránh trộn lệnh
+- Credentials lưu trong Windows Credential Manager (không lưu secret dạng rõ trong SQLite)
 
-## Key Features
-* Order list & detail auto aggregation (supports multiple response nesting patterns).
-* Displays bank name, account number, account holder, branch (sub bank) and transfer content (always set = order number for reliability).
-* Simple dedup window to reduce spam.
+## Cấu trúc repo
+
+```
+p2p-qr/
+├── fe/                 # SvelteKit UI
+├── p2p-extension/      # Chrome MV3 extension
+├── src-tauri/          # Rust backend (Tauri, Axum :1425, SQLite, sync)
+├── README.md
+└── USER_GUIDE.md
+```
+
+## Cầu nối Extension ↔ App
+
+| | |
+|---|---|
+| Protocol | HTTP (không dùng WebSocket) |
+| Health | `GET http://127.0.0.1:1425/api/health` |
+| Payment | `POST http://127.0.0.1:1425/api/payment-detail` |
+| Body | `{ "type": "PAYMENT_DETAIL", "data": { orderNumber, accountNo, bankName, … } }` |
 
 ## Development
-Install deps first:
+
+### Yêu cầu
+
+- Node.js 20+
+- Rust stable (MSVC hoặc GNU + MinGW đầy đủ)
+- WebView2 Runtime (Windows)
+- Git
+
+### Chạy dev
+
 ```bash
-cd fe && npm install
-```
-Run app (dev):
-```bash
+npm install
+cd fe && npm install && cd ..
 npm run tauri:dev
 ```
 
-Load `p2p-extension` into Chromium (Developer Mode > Load unpacked).
+Load extension: Chrome → `chrome://extensions` → Developer mode → Load unpacked → chọn thư mục `p2p-extension/`.
 
-## Phase 3 Cleanup
-Diagnostics removed / gated behind `DEBUG` flags in extension scripts.
-Force detail helper & passive noisy logs removed.
+### Build installer / exe
 
-## Next Ideas
-* Persistent storage (SQLite or JSON snapshot) for history.
-* Friendly status code mapping.
-* Optional raw instruction field preservation.
-* SPA route mutation observer for more robust capture on dynamic navigations.
+Xem mục **Build** bên dưới hoặc `USER_GUIDE.md`.
 
-## Security / Privacy
-All processing is local. No external network calls besides Binance endpoints already executed by the browser session.
+```bash
+npm run tauri:build
+```
+
+File output mặc định:
+
+- `src-tauri/target/release/bundle/msi/` — installer MSI  
+- `src-tauri/target/release/bundle/nsis/` — installer NSIS (exe)  
+- `src-tauri/target/release/p2p-qr.exe` — binary chạy trực tiếp  
+
+## Tài liệu
+
+| File | Nội dung |
+|------|----------|
+| [USER_GUIDE.md](./USER_GUIDE.md) | Hướng dẫn dùng app + extension + build |
+| [RELEASE_NOTES.md](./RELEASE_NOTES.md) | Ghi chú phiên bản |
+
+## Bảo mật
+
+- API secret chỉ nằm trong kho khoá hệ thống và process Rust
+- Bridge HTTP chỉ bind `127.0.0.1`, CORS giới hạn origin extension
+- Không gửi dữ liệu ra server thứ ba (ngoài Binance API và img.vietqr.io)
 
 ## License
-Private / internal (add a proper license if distributing).
+
+MIT (private/internal tuỳ chính sách phân phối của bạn).

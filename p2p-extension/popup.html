@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>P2P Assistant</title>
+  <style>
+    body {
+      width: 350px;
+      padding: 15px;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+      text-align: center;
+    }
+    .status.connected {
+      background: #0f4c3a;
+      border: 1px solid #10b981;
+      color: #10b981;
+    }
+    .status.disconnected {
+      background: #4c1d1d;
+      border: 1px solid #ef4444;
+      color: #ef4444;
+    }
+    .info {
+      font-size: 12px;
+      color: #999;
+      margin-top: 15px;
+    }
+    .button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+      margin: 5px 0;
+    }
+    .button:hover {
+      background: #2563eb;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h3>🔄 P2P Assistant</h3>
+  </div>
+  
+  <div id="status" class="status disconnected">
+    ❌ Checking connection...
+  </div>
+  
+
+  
+  <div class="info">
+    <strong>Tính năng:</strong><br>
+    • Tự động capture thông tin thanh toán từ Binance P2P<br>
+    • Gửi data về Tauri app để hiển thị<br>
+    • Chỉ hoạt động khi browsing trên p2p.binance.com
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

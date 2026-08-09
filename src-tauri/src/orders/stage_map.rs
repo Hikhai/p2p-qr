@@ -1,34 +1,58 @@
-use serde::Deserialize;
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct StageMapConfig { pub labels: HashMap<String, String> }
-
+/// Nhãn tiếng Việt cho mã trạng thái lệnh của Binance P2P.
+///
+/// Bản trước nạp nhãn từ `db/stage_map.json` cạnh file thực thi. File đó không nằm
+/// trong `bundle.resources` của `tauri.conf.json`, nên bản build luôn dùng giá trị
+/// mặc định — nhánh đọc file chỉ chạy được khi lập trình viên tự đặt file vào đúng
+/// chỗ. Giữ nhãn ngay trong code thì hành vi giống nhau ở mọi máy.
 #[derive(Debug, Clone)]
-pub struct StageMap { labels: HashMap<i64, String> }
+pub struct StageMap {
+    labels: HashMap<i64, String>,
+}
 
-impl StageMap {
-    pub fn load_from(path: &str) -> Self {
-        let mut labels: HashMap<i64, String> = HashMap::new();
-        // defaults - map Binance P2P status codes (chính xác như trên sàn)
-        labels.insert(1, "Đang chờ thanh toán".into());      // PENDING - chờ người mua thanh toán
-        labels.insert(2, "Đã thanh toán".into());            // PAID - người mua đã thanh toán, chờ xác nhận
-        labels.insert(3, "Đang xác minh".into());            // VERIFYING - đang xác minh thanh toán
-        labels.insert(4, "Đã hoàn thành".into());            // COMPLETED - giao dịch thành công
-        labels.insert(5, "Đã hủy".into());                   // CANCELLED - hủy bởi người dùng
-        labels.insert(6, "Đã hủy bởi hệ thống".into());      // CANCELLED_BY_SYSTEM - hủy bởi hệ thống
+impl Default for StageMap {
+    fn default() -> Self {
+        let labels = [
+            (1, "Đang chờ thanh toán"),
+            (2, "Chờ người bán xác nhận"),
+            (3, "Đang giải phóng coin"),
+            (4, "Đã hoàn thành"),
+            (5, "Đang khiếu nại"),
+            (6, "Đã hủy"),
+            (7, "Hủy bởi hệ thống"),
+        ]
+        .into_iter()
+        .map(|(code, label)| (code, label.to_string()))
+        .collect();
 
-        if let Ok(txt) = fs::read_to_string(path) {
-            if let Ok(cfg) = serde_json::from_str::<StageMapConfig>(&txt) {
-                for (k,v) in cfg.labels {
-                    if let Ok(code) = k.parse::<i64>() { labels.insert(code, v); }
-                }
-            }
-        }
         Self { labels }
     }
+}
 
+impl StageMap {
     pub fn label(&self, code: i64) -> String {
-        self.labels.get(&code).cloned().unwrap_or_else(|| format!("Code{}", code))
+        self.labels
+            .get(&code)
+            .cloned()
+            .unwrap_or_else(|| format!("Không rõ ({code})"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StageMap;
+
+    #[test]
+    fn known_codes_have_labels() {
+        let map = StageMap::default();
+        assert_eq!(map.label(1), "Đang chờ thanh toán");
+        assert_eq!(map.label(2), "Chờ người bán xác nhận");
+        assert_eq!(map.label(4), "Đã hoàn thành");
+    }
+
+    #[test]
+    fn unknown_code_is_reported_as_such() {
+        assert_eq!(StageMap::default().label(-1), "Không rõ (-1)");
     }
 }

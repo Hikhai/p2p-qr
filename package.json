@@ -4,9 +4,9 @@
   "description": "Quản lý giao dịch Binance P2P với tính năng đồng bộ tự động",
   "type": "module",
   "scripts": {
-    "fe:dev": "cd fe && vite dev",
-    "fe:build": "cd fe && npm run build",
-    "fe:check": "cd fe && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "fe:dev": "npm --prefix fe run dev",
+    "fe:build": "npm --prefix fe run build",
+    "fe:check": "npm --prefix fe run check",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

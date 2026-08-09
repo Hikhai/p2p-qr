@@ -1,23 +1,23 @@
-<!-- Copied from root src/routes/+page.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { listen, type Event, type UnlistenFn } from '@tauri-apps/api/event';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { fade, fly } from 'svelte/transition';
   import OrderTable from '../lib/OrderTable.svelte';
   import OrderDetail from '../lib/OrderDetail.svelte';
   import ToastContainer, { toastSuccess, toastError, toast } from '../lib/ToastContainer.svelte';
+  import { formatDateTime, timeAgo } from '../lib/format';
+  import { isInProgress, type CredentialInfo, type Order } from '../lib/types';
 
   let apiKey = "";
   let apiSecret = "";
   let label = "default";
-  let orders:any[] = [];
+  let orders: Order[] = [];
   let syncDays = 7;
   let activeTab:'dashboard'|'buy'|'sell'|'inprogress'|'settings' = 'dashboard';
   let loading = false;
   let errorMsg = "";
-  let selectedOrder: any = null;
-  let isAutoRefresh = true;
+  let selectedOrder: Order | null = null;
   let refreshing = false;
   let lastRefreshTime = 0;
   let showApiKey = false;
@@ -25,34 +25,33 @@
   let isSaving = false;
   let isTesting = false;
   let syncProgress = "";
-  let credentialsSaved = false;
+  let credentialInfo: CredentialInfo | null = null;
   let isClearing = false;
   let showClearConfirm = false;
+  let payerBankName = "";
+
+  $: credentialsSaved = credentialInfo !== null;
 
   async function loadOrders(silent: boolean = false) {
-    try { 
-      const result = await invoke('list_orders_from_db', { limit: 0 }); 
-      orders = result as any[];
+    try {
+      orders = await invoke<Order[]>('list_orders_from_db', { limit: 0 });
+      if (selectedOrder) {
+        selectedOrder =
+          orders.find((o) => o.order_number === selectedOrder!.order_number) ?? selectedOrder;
+      }
       errorMsg = "";
     }
-    catch (e:any) { 
-      console.error('Error loading orders:', e);
-      errorMsg = e.toString();
+    catch (e) {
+      errorMsg = String(e);
       if (!silent) {
         toastError('Không thể tải danh sách lệnh');
       }
     }
   }
-  function fmtDate(ms?: number) {
-    if (!ms) return '';
-    try { return new Date(ms).toLocaleString('vi-VN'); } catch { return '' }
-  }
-  function partnerName(o:any) { return o.trade_type === 'BUY' ? o.seller_nickname : o.buyer_nickname }
-  $: buyOrders = orders.filter(o=>o.trade_type==='BUY');
-  $: sellOrders = orders.filter(o=>o.trade_type==='SELL');
-  // in-progress status codes: 1 (Đang chờ thanh toán), 2 (Đã thanh toán), 3 (Đang xác minh)
-  $: inProgressOrders = orders.filter(o=>o.status_code===1 || o.status_code===2 || o.status_code===3);
-  $: lastSync = orders.reduce((m:number, o:any)=> Math.max(m, o.last_api_sync_ts||0), 0);
+  $: buyOrders = orders.filter(o => o.trade_type === 'BUY');
+  $: sellOrders = orders.filter(o => o.trade_type === 'SELL');
+  $: inProgressOrders = orders.filter(isInProgress);
+  $: lastSync = orders.reduce((max, o) => Math.max(max, o.last_api_sync_ts || 0), 0);
   async function saveCreds() {
     errorMsg="";
     
@@ -70,43 +69,86 @@
     }
     
     isSaving = true;
-    const isUpdate = credentialsSaved; // Check if updating existing credentials
-    
-    try { 
-      await invoke('store_api_credentials', { label, apiKey, apiSecret }); 
+    const isUpdate = credentialsSaved;
+
+    try {
+      const result = await invoke<{ accountSwitched: boolean }>('store_api_credentials', {
+        label,
+        apiKey,
+        apiSecret,
+        payerBankName: payerBankName.trim() || null
+      });
       errorMsg = "";
-      credentialsSaved = true;
-      toastSuccess(isUpdate ? '✅ Đã cập nhật API credentials' : '✅ Đã lưu API credentials thành công');
+      // Xoá khỏi biến của trang ngay sau khi lưu: secret không cần nằm trong webview.
+      apiKey = "";
+      apiSecret = "";
+      await loadCredentialInfo();
+      if (result?.accountSwitched) {
+        orders = [];
+        selectedOrder = null;
+        toastSuccess('Đã đổi tài khoản Binance — dữ liệu cũ đã xoá. Đang đồng bộ lại...');
+        await doForceSync();
+      } else {
+        toastSuccess(isUpdate ? 'Đã cập nhật API credentials' : 'Đã lưu API credentials vào kho khoá hệ thống');
+      }
     }
-    catch (e:any) { 
-      errorMsg = e.toString();
-      toastError('Lưu thất bại: ' + e.toString());
+    catch (e) {
+      errorMsg = String(e);
+      toastError('Lưu thất bại: ' + String(e));
     }
     finally {
       isSaving = false;
     }
   }
+
+  async function savePayerBankName() {
+    if (!credentialsSaved) {
+      toastError('Hãy lưu API credentials trước');
+      return;
+    }
+    if (!payerBankName.trim()) {
+      toastError('Nhập tên chủ tài khoản ngân hàng (người chuyển)');
+      return;
+    }
+    try {
+      await invoke('update_payer_bank_name', { payerBankName: payerBankName.trim() });
+      await loadCredentialInfo();
+      toastSuccess('Đã lưu tên chủ TK người chuyển');
+    } catch (e) {
+      toastError('Lưu tên chủ TK thất bại: ' + String(e));
+    }
+  }
   async function testCreds() {
     errorMsg="";
-    
+
     if (!credentialsSaved) {
       errorMsg = "Vui lòng lưu API credentials trước khi test";
       toastError('Chưa lưu credentials');
       return;
     }
-    
+
     isTesting = true;
-    try { 
-      const res = await invoke<string>('test_api_credentials'); 
+    try {
+      const message = await invoke<string>('test_api_credentials');
       errorMsg = "";
-      toastSuccess('✅ Kết nối API thành công! Credentials hợp lệ.');
+      toastSuccess(message);
     }
-    catch (e:any) { 
-      errorMsg = "❌ Kết nối thất bại: " + e.toString();
-      toastError('Kết nối thất bại - Kiểm tra lại API Key/Secret');
+    catch (e) {
+      errorMsg = "Kết nối thất bại: " + String(e);
+      toastError('Kết nối thất bại — kiểm tra lại API Key/Secret');
     }
     finally {
       isTesting = false;
+    }
+  }
+  async function removeCreds() {
+    try {
+      await invoke('clear_api_credentials');
+      credentialInfo = null;
+      toastSuccess('Đã xoá API credentials khỏi kho khoá hệ thống');
+    } catch (e) {
+      errorMsg = String(e);
+      toastError('Xoá credentials thất bại');
     }
   }
   async function doForceSync() {
@@ -129,19 +171,19 @@
     
     try {
       syncProgress = `Đang tải dữ liệu ${syncDays} ngày gần nhất...`;
-      await invoke('force_initial_sync', { days: syncDays }); 
-      
+      const changed = await invoke<number>('force_initial_sync', { days: syncDays });
+
       syncProgress = "Đang xử lý và lưu dữ liệu...";
       await loadOrders();
-      
+
       syncProgress = "";
-      toastSuccess(`✅ Đã đồng bộ thành công ${orders.length} lệnh`);
+      toastSuccess(`Đã đồng bộ ${orders.length} lệnh (${changed} lệnh mới hoặc có thay đổi)`);
       errorMsg = "";
     }
-    catch (e:any) { 
-      errorMsg = "❌ Đồng bộ thất bại: " + e.toString();
+    catch (e) {
+      errorMsg = "Đồng bộ thất bại: " + String(e);
       syncProgress = "";
-      toastError('Đồng bộ thất bại - Kiểm tra kết nối và credentials');
+      toastError('Đồng bộ thất bại — kiểm tra kết nối và credentials');
     }
     finally { 
       loading = false; 
@@ -154,35 +196,33 @@
       showClearConfirm = true;
       return;
     }
-    
+
     isClearing = true;
     errorMsg = "";
-    
-    console.log('[CLEAR_DATA] Starting clear operation...');
-    toast('🗑️ Đang xóa dữ liệu... App sẽ tắt ngay sau đó.');
-    
+
     try {
-      console.log('[CLEAR_DATA] Calling clear_all_data...');
-      
-      // App will exit immediately, so this won't return
-      await invoke<string>('clear_all_data');
-      
-      // This code won't execute because app exits
-    } catch (err: any) {
-      console.error('[CLEAR_DATA] Error:', err);
-      errorMsg = `Lỗi khi xóa dữ liệu: ${err}`;
-      toast(`❌ ${errorMsg}`);
+      await invoke('clear_all_data');
+      // Không còn cần tắt app: dữ liệu được xoá bằng SQL ngay trong tiến trình.
+      orders = [];
+      credentialInfo = null;
+      selectedOrder = null;
+      showClearConfirm = false;
+      toastSuccess('Đã xoá toàn bộ dữ liệu');
+    } catch (e) {
+      errorMsg = `Lỗi khi xóa dữ liệu: ${String(e)}`;
+      toastError(errorMsg);
+    } finally {
       isClearing = false;
     }
   }
-  
+
   function cancelClear() {
     showClearConfirm = false;
   }
-  
 
 
-  function handleOrderClick(order: any) {
+
+  function handleOrderClick(order: Order) {
     selectedOrder = order;
   }
 
@@ -190,108 +230,50 @@
     selectedOrder = null;
   }
 
-  async function refreshFromExchange(silent: boolean = false) {
+  async function refreshFromExchange() {
     refreshing = true;
     errorMsg = "";
     try {
       await invoke('force_sync_recent');
-      await loadOrders(true); // Silent reload to avoid toast spam
+      await loadOrders(true);
       lastRefreshTime = Date.now();
-      if (!silent) {
-        toastSuccess('Đã cập nhật từ sàn');
-      }
-    } catch (e: any) {
-      errorMsg = e.toString();
-      if (!silent) {
-        toastError('Cập nhật thất bại');
-      }
+      toastSuccess('Đã cập nhật từ sàn');
+    } catch (e) {
+      errorMsg = String(e);
+      toastError('Cập nhật thất bại');
     } finally {
       refreshing = false;
     }
   }
 
-  function toggleAutoRefresh() {
-    isAutoRefresh = !isAutoRefresh;
-  }
-
-  function fmtTimeAgo(ms: number) {
-    if (!ms) return 'Chưa bao giờ';
-    const seconds = Math.floor((Date.now() - ms) / 1000);
-    if (seconds < 60) return `${seconds}s trước`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m trước`;
-    return `${Math.floor(seconds / 3600)}h trước`;
-  }
-  async function loadCredentials() {
+  async function loadCredentialInfo() {
     try {
-      // Get saved credentials from database
-      const credentials = await invoke<[string, string] | null>('get_saved_credentials');
-      
-      if (credentials) {
-        // Credentials exist - fill the input fields
-        const [savedApiKey, savedApiSecret] = credentials;
-        apiKey = savedApiKey;
-        apiSecret = savedApiSecret;
-        credentialsSaved = true;
-        console.log('[LOAD_CREDS] Loaded saved credentials');
-      } else {
-        // No credentials saved yet
-        credentialsSaved = false;
-        console.log('[LOAD_CREDS] No saved credentials found');
+      credentialInfo = await invoke<CredentialInfo | null>('get_credential_info');
+      if (credentialInfo?.payer_bank_name) {
+        payerBankName = credentialInfo.payer_bank_name;
       }
     } catch (e) {
-      console.error('[LOAD_CREDS] Error loading credentials:', e);
-      credentialsSaved = false;
+      errorMsg = String(e);
+      credentialInfo = null;
     }
   }
 
   onMount(() => {
-    // fire and forget initial load
-    loadOrders(true); // Silent initial load
-    loadCredentials(); // Check if credentials exist
-    
-    let unlistenFn: UnlistenFn | undefined;
-    listen('orders-updated', async (_e: Event<any>) => { await loadOrders(true); }) // Silent event reload
-      .then((u: UnlistenFn) => { unlistenFn = u; })
-      .catch(() => {});
-    
-    // Listen for payment details from extension
-    const handleExtensionMessage = async (event: any) => {
-      if (event.data.__TAURI_SAVE_PAYMENT__) {
-        try {
-          const paymentData = event.data.__TAURI_SAVE_PAYMENT__;
-  
-          
-          const result = await invoke('save_payment_detail_from_extension', {
-            orderNumber: paymentData.orderNumber,
-            accountName: paymentData.accountName,
-            accountNo: paymentData.accountNo,
-            bankName: paymentData.bankName,
-            subBank: paymentData.subBank,
-            qrCodeUrl: paymentData.qrCodeUrl
-          });
-          
-  
-          await loadOrders(true); // Silent refresh to show updated data
-        } catch (error) {
-          // Handle silently
-        }
-      }
-    };
-    
-    window.addEventListener('message', handleExtensionMessage);
-    
-    // Auto refresh every 30 seconds when enabled (silent mode)
-    const interval = setInterval(async () => {
-      if (isAutoRefresh && !refreshing) {
-        await refreshFromExchange(true); // Silent refresh - no toast spam
-      }
-    }, 30000);
+    loadOrders(true);
+    loadCredentialInfo();
 
-    return () => { 
-      if (unlistenFn) unlistenFn(); 
-      clearInterval(interval);
-      window.removeEventListener('message', handleExtensionMessage);
-    };
+    // Backend chỉ bắn event khi dữ liệu thực sự đổi, nên đây là toàn bộ cơ chế tự
+    // động cập nhật. Bản trước còn thêm setInterval 30 giây gọi lại force_sync_recent,
+    // chạy song song với scheduler ở backend và nhân đôi số lời gọi API.
+    let unlistenFn: UnlistenFn | undefined;
+    listen('orders-updated', () => {
+      lastRefreshTime = Date.now();
+      loadOrders(true);
+    })
+      .then((unlisten) => { unlistenFn = unlisten; })
+      .catch(() => {});
+
+    return () => { unlistenFn?.(); };
   });
 </script>
 
@@ -457,9 +439,24 @@ label {
 }
 
 .stat-icon {
-  font-size: 32px;
-  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
 }
+
+.dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot.total { background: #60a5fa; box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25); }
+.dot.buy { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25); }
+.dot.sell { background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25); }
+.dot.progress { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25); }
 
 .stat-content {
   flex: 1;
@@ -506,22 +503,13 @@ label {
   gap: 6px;
 }
 
-.btn-auto-on {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-.btn-auto-on:hover {
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
-}
-
-.btn-auto-off {
-  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
-  box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
-}
-
-.btn-auto-off:hover {
-  box-shadow: 0 6px 16px rgba(107, 114, 128, 0.4);
+.auto-indicator {
+  font-size: 12px;
+  color: #4ade80;
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 6px;
 }
 
 .last-update {
@@ -601,7 +589,7 @@ ul li {
   <button on:click={()=>activeTab='sell'} disabled={activeTab==='sell'}>Lệnh bán</button>
   <button on:click={()=>activeTab='inprogress'} disabled={activeTab==='inprogress'}>Đang xử lý</button>
   <button on:click={()=>activeTab='settings'} disabled={activeTab==='settings'}>Cài đặt</button>
-  <span style="margin-left:12px;opacity:.8;font-size:12px;">Đồng bộ cuối: {fmtDate(lastSync)}</span>
+  <span style="margin-left:12px;opacity:.8;font-size:12px;">Đồng bộ cuối: {formatDateTime(lastSync)}</span>
 </nav>
 
 {#if activeTab==='dashboard'}
@@ -609,7 +597,7 @@ ul li {
     <h2>Tổng quan</h2>
     <div class="stats-grid">
       <div class="stat-card" transition:fly="{{ x: -20, delay: 0, duration: 300 }}">
-        <div class="stat-icon">📊</div>
+        <div class="stat-icon"><span class="dot total"></span></div>
         <div class="stat-content">
           <div class="stat-label">Tất cả</div>
           <div class="stat-value">{orders.length}</div>
@@ -617,7 +605,7 @@ ul li {
       </div>
       
       <div class="stat-card buy-card" transition:fly="{{ x: -20, delay: 100, duration: 300 }}">
-        <div class="stat-icon">🟢</div>
+        <div class="stat-icon"><span class="dot buy"></span></div>
         <div class="stat-content">
           <div class="stat-label">Mua</div>
           <div class="stat-value buy">{buyOrders.length}</div>
@@ -625,7 +613,7 @@ ul li {
       </div>
       
       <div class="stat-card sell-card" transition:fly="{{ x: -20, delay: 200, duration: 300 }}">
-        <div class="stat-icon">🔴</div>
+        <div class="stat-icon"><span class="dot sell"></span></div>
         <div class="stat-content">
           <div class="stat-label">Bán</div>
           <div class="stat-value sell">{sellOrders.length}</div>
@@ -633,7 +621,7 @@ ul li {
       </div>
       
       <div class="stat-card progress-card" transition:fly="{{ x: -20, delay: 300, duration: 300 }}">
-        <div class="stat-icon">⏳</div>
+        <div class="stat-icon"><span class="dot progress"></span></div>
         <div class="stat-content">
           <div class="stat-label">Đang xử lý</div>
           <div class="stat-value progress">{inProgressOrders.length}</div>
@@ -642,26 +630,23 @@ ul li {
     </div>
   </div>
   <div class="action-bar">
-    <button class="btn-action" on:click={() => loadOrders()}>
-      🔄 Tải lại
+    <button class="btn-action" on:click={refreshFromExchange} disabled={refreshing}>
+      {#if refreshing}
+        <span class="spinner"></span> Đang cập nhật...
+      {:else}
+        🔄 Tải lại
+      {/if}
     </button>
-    <button class="btn-action" on:click={() => refreshFromExchange()} disabled={refreshing}>
+    <button class="btn-action" on:click={refreshFromExchange} disabled={refreshing}>
       {#if refreshing}
         <span class="spinner"></span> Đang cập nhật...
       {:else}
         📡 Cập nhật từ sàn
       {/if}
     </button>
-    <button 
-      class="btn-action" 
-      class:btn-auto-on={isAutoRefresh}
-      class:btn-auto-off={!isAutoRefresh}
-      on:click={toggleAutoRefresh}
-    >
-      {isAutoRefresh ? '🔄 Tự động' : '⏸️ Thủ công'}
-    </button>
+    <span class="auto-indicator">🔄 Tự động theo dõi (15s)</span>
     <span class="last-update">
-      Cập nhật cuối: {fmtTimeAgo(lastRefreshTime)}
+      Cập nhật cuối: {lastRefreshTime ? timeAgo(lastRefreshTime) : (lastSync ? timeAgo(lastSync) : '—')}
     </span>
   </div>
   {#if errorMsg}<div class="error">{errorMsg}</div>{/if}
@@ -703,13 +688,23 @@ ul li {
       </p>
       
       <div style="background: rgba(31, 41, 55, 0.8); padding: 24px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 24px;">
+        {#if credentialInfo}
+          <div style="margin-bottom:20px; padding:12px; background:rgba(34, 197, 94, 0.1); border-left:4px solid #22c55e; border-radius:6px;">
+            <p style="color:#4ade80; font-size:13px; margin:0 0 4px 0;">
+              Đã lưu trong kho khoá của hệ điều hành ({credentialInfo.label})
+            </p>
+            <p style="color:#9ca3af; font-size:12px; margin:0; font-family:monospace;">
+              API Key: {credentialInfo.api_key_masked} · lưu ngày {formatDateTime(credentialInfo.created_at)}
+            </p>
+          </div>
+        {/if}
+
         <label>
           Label (Tên cấu hình):
           <input 
             bind:value={label} 
             placeholder="default" 
-            disabled={credentialsSaved}
-            style="width:100%; margin-top:8px; box-sizing:border-box; {credentialsSaved ? 'opacity:0.6; cursor:not-allowed;' : ''}"
+            style="width:100%; margin-top:8px; box-sizing:border-box;"
           />
         </label>
         
@@ -727,9 +722,8 @@ ul li {
           <input 
             bind:value={apiKey} 
             type={showApiKey ? 'text' : 'password'}
-            placeholder="Nhập API Key từ Binance"
-            disabled={credentialsSaved}
-            style="width:100%; margin-top:8px; font-family: monospace; box-sizing:border-box; {credentialsSaved ? 'opacity:0.6; cursor:not-allowed;' : ''}"
+            placeholder={credentialInfo ? 'Nhập API Key mới để thay thế' : 'Nhập API Key từ Binance'}
+            style="width:100%; margin-top:8px; font-family: monospace; box-sizing:border-box;"
           />
         </label>
         
@@ -747,30 +741,40 @@ ul li {
           <input 
             bind:value={apiSecret} 
             type={showApiSecret ? 'text' : 'password'}
-            placeholder="Nhập API Secret từ Binance"
-            disabled={credentialsSaved}
-            style="width:100%; margin-top:8px; font-family: monospace; box-sizing:border-box; {credentialsSaved ? 'opacity:0.6; cursor:not-allowed;' : ''}"
+            placeholder={credentialInfo ? 'Nhập API Secret mới để thay thế' : 'Nhập API Secret từ Binance'}
+            style="width:100%; margin-top:8px; font-family: monospace; box-sizing:border-box;"
           />
         </label>
-        
-        {#if credentialsSaved}
-          <div style="margin-top:16px; padding:12px; background:rgba(34, 197, 94, 0.1); border-left:4px solid #22c55e; border-radius:6px;">
-            <p style="color:#4ade80; font-size:13px; margin:0;">
-              ✓ Credentials đã được lưu. Để thay đổi, vui lòng xóa toàn bộ dữ liệu trước.
-            </p>
+
+        <label style="margin-top:16px;">
+          <span>Tên chủ TK ngân hàng (người chuyển):</span>
+          <p style="color:#9ca3af; font-size:12px; margin:6px 0 0;">
+            Nhập đúng chữ hoa/thường như trên thẻ/TK — nội dung CK và QR giữ nguyên:
+            <code style="color:#fbbf24;">{'{tên} chuyen tien'}</code>
+          </p>
+          <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+            <input
+              bind:value={payerBankName}
+              type="text"
+              placeholder="VD: NGUYEN VAN A hoặc Nguyen Van A"
+              autocomplete="off"
+              spellcheck="false"
+              style="flex:1; font-family: monospace; box-sizing:border-box;"
+            />
+            {#if credentialsSaved}
+              <button type="button" on:click={savePayerBankName} style="white-space:nowrap;">
+                Lưu tên
+              </button>
+            {/if}
           </div>
-        {/if}
-        
-        <div style="margin-top:20px; display:flex; gap:12px; align-items:center;">
-          <button 
-            on:click={saveCreds} 
-            disabled={isSaving || credentialsSaved}
-            style="{credentialsSaved ? 'opacity:0.5; cursor:not-allowed;' : ''}"
-          >
+        </label>
+
+        <div style="margin-top:20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <button on:click={saveCreds} disabled={isSaving}>
             {#if isSaving}
               <span class="spinner"></span> Đang lưu...
             {:else}
-              💾 Lưu Credentials
+              {credentialInfo ? '💾 Cập nhật Credentials' : '💾 Lưu Credentials'}
             {/if}
           </button>
           <button on:click={testCreds} disabled={isTesting || !credentialsSaved} style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
@@ -780,8 +784,10 @@ ul li {
               🔌 Test Kết Nối
             {/if}
           </button>
-          {#if credentialsSaved}
-            <span style="color:#10b981; font-size:12px;">✅ Đã lưu</span>
+          {#if credentialInfo}
+            <button on:click={removeCreds} style="background: rgba(107, 114, 128, 0.3); box-shadow:none;">
+              🔓 Xoá Credentials
+            </button>
           {/if}
         </div>
       </div>
@@ -837,8 +843,8 @@ ul li {
         <h4 style="margin:0 0 8px 0; color:#60a5fa; font-size:14px;">💡 Hướng dẫn:</h4>
         <ul style="margin:0; padding-left:20px; font-size:13px; color:#9ca3af; line-height:1.8;">
           <li>Lấy API Key/Secret từ <a href="https://www.binance.com/en/my/settings/api-management" target="_blank" style="color:#60a5fa;">Binance API Management</a></li>
-          <li>API Key và Secret sẽ được ẩn bằng *** để bảo mật</li>
-          <li>Click nút "👁️ Hiện" để xem lại thông tin đã nhập</li>
+          <li>API Key/Secret được lưu trong kho khoá của Windows, không nằm trong file DB</li>
+          <li>UI chỉ hiển thị API Key đã che; secret không bao giờ được đọc lại</li>
           <li>Luôn test kết nối trước khi đồng bộ dữ liệu</li>
           <li>Nếu gặp lỗi "Kết nối thất bại", kiểm tra lại API Key/Secret</li>
         </ul>
@@ -848,9 +854,9 @@ ul li {
       <div style="margin-top:24px; background: rgba(239, 68, 68, 0.1); padding: 24px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
         <h3 style="color:#fca5a5; margin-top:0;">🗑️ Xóa Toàn Bộ Dữ Liệu</h3>
         <p style="color:#9ca3af; font-size:13px; margin-bottom:16px;">
-          Xóa file database <code style="background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px;">p2p_app.db</code> để xóa tất cả dữ liệu. 
-          <strong style="color:#fca5a5;">App sẽ tắt ngay lập tức. Vui lòng mở lại sau 2 giây.</strong><br/>
-          <strong style="color:#fca5a5;">Hành động này không thể hoàn tác!</strong>
+          Xóa toàn bộ lệnh, thông tin thanh toán và API credentials trong kho khoá hệ thống.
+          App <strong>không</strong> cần tắt — dữ liệu được xoá ngay trong phiên hiện tại.
+          <br/><strong style="color:#fca5a5;">Hành động này không thể hoàn tác!</strong>
         </p>
         
         {#if !showClearConfirm}
@@ -879,7 +885,7 @@ ul li {
               <li>Thông tin thanh toán</li>
             </ul>
             <p style="color:#fbbf24; font-size:13px; margin:0 0 16px 0; font-weight:500;">
-              💡 App sẽ tắt sau khi xóa. Hãy đợi 2 giây rồi mở lại thủ công.
+              💡 Sau khi xoá, bạn có thể nhập lại API credentials và đồng bộ lại ngay.
             </p>
             <div style="display:flex; gap:12px;">
               <button 

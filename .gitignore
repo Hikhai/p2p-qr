@@ -1,7 +1,5 @@
 .DS_Store
-node_modules
-/build
-/.svelte-kit
+node_modules/
 /package
 .env
 .env.*
@@ -9,31 +7,41 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# Tauri
-/src-tauri/target/
-/src-tauri/Cargo.lock
-
-# Rust
-target/
-Cargo.lock
-
-# Build outputs
+# Frontend build outputs
+/fe/build/
+/fe/.svelte-kit/
+/fe/dist/
 /dist/
+/build/
+/.svelte-kit/
+
+# Tauri / Rust
+/src-tauri/target/
+target/
+*.exe
+*.pdb
+# Giữ Cargo.lock cho app (không phải library) để build reproducible.
 
 # Local SQLite database
 p2p_app.db
+*.db-wal
+*.db-shm
 
 # Local seed credentials (DO NOT COMMIT)
 db/seed_credentials.json
+db/seed_credentials.applied.json
+db/migrations/
 
 # Logs
 *.log
 
-# Test files
+# Test / toolchain leftovers
 test-*.mjs
 test-*.js
 ws-test.mjs
 rustup-init.exe
+verify_*.mjs
+fix_fences.mjs
 
 # IDE
 .vscode/
