@@ -11,12 +11,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
-  "author": "",
+  "author": "Hikhai",
   "license": "MIT",
-  "dependencies": {
-    "@tauri-apps/plugin-opener": "^2",
-    "ws": "^8.18.3"
-  },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
   }

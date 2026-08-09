@@ -24,13 +24,9 @@ target/
 
 # Local SQLite database
 p2p_app.db
+*.db
 *.db-wal
 *.db-shm
-
-# Local seed credentials (DO NOT COMMIT)
-db/seed_credentials.json
-db/seed_credentials.applied.json
-db/migrations/
 
 # Logs
 *.log
@@ -42,6 +38,7 @@ ws-test.mjs
 rustup-init.exe
 verify_*.mjs
 fix_fences.mjs
+check_*.ps1
 
 # IDE
 .vscode/
