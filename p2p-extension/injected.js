@@ -2,10 +2,10 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.4.0';
-  const DEBUG = true; // set true for limited console diagnostics
-  
-  console.log('[P2P Ext v' + VERSION + '] Injected script loaded, DEBUG=' + DEBUG);
+  const VERSION = '1.0.1';
+  const DEBUG = false;
+
+  if (DEBUG) console.log('[P2P Ext v' + VERSION + '] Injected script loaded');
 
   // Patterns/keywords checked against url.toLowerCase()
   const TARGET_PATTERNS = [

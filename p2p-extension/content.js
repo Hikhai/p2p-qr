@@ -2,8 +2,8 @@
 (function() {
 	'use strict';
 	
-	const BRIDGE_VERSION = '0.2.2';
-	const DEBUG = true;
+	const BRIDGE_VERSION = '1.0.1';
+	const DEBUG = false;
 	
 	let isInjected = false;
 
@@ -12,7 +12,6 @@
 		if (isInjected) return;
 		
 		try {
-			// PRIORITY: Inject API interceptor (most reliable, gets full data)
 			const script = document.createElement('script');
 			script.src = chrome.runtime.getURL('injected.js');
 			script.async = false;
@@ -25,17 +24,6 @@
 				// Failed to load injected script - silent handling
 			};
 			document.documentElement.appendChild(script);
-			
-			// FALLBACK: DOM scraper (less reliable, as backup)
-			// Disabled by default - API is more accurate
-			const USE_DOM_SCRAPER = false;
-			if (USE_DOM_SCRAPER) {
-				const scraper = document.createElement('script');
-				scraper.src = chrome.runtime.getURL('scraper.js');
-				scraper.async = false;
-				scraper.onload = () => scraper.remove();
-				document.documentElement.appendChild(scraper);
-			}
 		} catch (error) {
 			// Inject script failed - silent handling
 		}

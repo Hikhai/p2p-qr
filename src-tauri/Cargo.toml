@@ -1,6 +1,6 @@
 [package]
 name = "p2p-qr"
-version = "0.1.0"
+version = "1.0.1"
 description = "Quản lý lệnh Binance P2P và sinh QR chuyển khoản VietQR"
 authors = ["Hikhai"]
 edition = "2021"
