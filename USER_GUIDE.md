@@ -10,9 +10,11 @@ Tài liệu này dành cho người dùng cuối và người build từ source.
 
 ### Bản build sẵn
 
-1. Chạy file `.msi` hoặc installer NSIS (`.exe`) từ bản phát hành.
+1. Chạy installer **NSIS** (`Binance P2P Manager_x.x.x_x64-setup.exe`) hoặc `.msi` — **không** chạy tay file `p2p-qr.exe` tách rời.
 2. Mở **Binance P2P Manager** từ Start Menu / Desktop.
 3. Giữ thư mục `p2p-extension/` kèm theo để load vào Chrome (mục 2.3).
+
+> **Lỗi `WebView2Loader.dll was not found`:** thường do mở `p2p-qr.exe` một mình (thiếu DLL cạnh exe). Dùng installer NSIS, hoặc copy cả `p2p-qr.exe` **và** `WebView2Loader.dll` trong cùng thư mục. Máy cũng cần [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (Windows 10/11 thường đã có).
 
 ### Build từ source
 
@@ -121,6 +123,7 @@ State bot: `%LOCALAPPDATA%\BinanceP2PManager\bot_config.json`, `bot_state.json`.
 | QR sai nội dung CK | Sửa **Nội dung chuyển khoản** trong Cài đặt → mở lại chi tiết lệnh. |
 | Đổi tài khoản vẫn thấy lệnh cũ | Lưu API key mới (app sẽ clear). Hoặc **Xóa toàn bộ dữ liệu** rồi đồng bộ lại. |
 | Không sync | **Test Kết Nối**; kiểm tra mạng / IP whitelist Binance API. |
+| `WebView2Loader.dll was not found` | Cài bằng NSIS/MSI, hoặc để `WebView2Loader.dll` cùng thư mục với `p2p-qr.exe`. |
 | Bot không gửi tin1/QR | Bot đang chạy? Chat WS đã kết nối (log)? Lệnh còn `TRADING`? |
 | QR CK thiếu chữ (vd. TRAN UC…) | Dùng bản ≥1.0.2 (chuẩn hóa `Ð`→`D`); kiểm tra placeholder `{ten_nguoi_mua}`. |
 | Tin cảm ơn gửi sớm | Cần bản ≥1.0.2 (verify `checkIfCanReleaseCoin`); tắt auto-reply Binance. |

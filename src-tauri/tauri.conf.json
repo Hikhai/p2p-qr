@@ -7,6 +7,7 @@
     "beforeDevCommand": "npm run fe:dev",
     "devUrl": "http://localhost:1421",
     "beforeBuildCommand": "npm run fe:build",
+    "beforeBundleCommand": "cmd /c if exist target\\release\\WebView2Loader.dll copy /Y target\\release\\WebView2Loader.dll resources\\WebView2Loader.dll",
     "frontendDist": "../fe/build"
   },
   "app": {
@@ -38,6 +39,18 @@
     "publisher": "Binance P2P Tools",
     "copyright": "Copyright © 2026",
     "shortDescription": "Quản lý giao dịch Binance P2P",
-    "longDescription": "Ứng dụng quản lý và theo dõi các giao dịch Binance P2P với tính năng đồng bộ tự động và hiển thị chi tiết thanh toán."
+    "longDescription": "Ứng dụng quản lý và theo dõi các giao dịch Binance P2P với tính năng đồng bộ tự động và hiển thị chi tiết thanh toán.",
+    "resources": {
+      "resources/WebView2Loader.dll": "WebView2Loader.dll"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    }
   }
 }
