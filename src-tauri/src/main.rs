@@ -4,6 +4,7 @@
 )]
 
 mod banks;
+mod bot;
 mod db;
 mod vietqr;
 
@@ -53,7 +54,7 @@ const HTTP_ADDR: SocketAddr = SocketAddr::new(
 /// không ăn hết RAM.
 const HTTP_BODY_LIMIT: usize = 64 * 1024;
 
-struct AppCtx {
+pub struct AppCtx {
     order_repo: Arc<OrderRepo>,
     payment_repo: Arc<PaymentRepo>,
     creds_repo: Arc<CredentialsRepo>,
@@ -349,9 +350,9 @@ async fn get_order_payment_detail(
             .await
             .map_err(|e| e.to_string())?;
         if let Some(name) = payer.filter(|s| !s.trim().is_empty()) {
-            let content = format!("{} chuyen tien", name.trim());
+            // Dùng nguyên nội dung user cấu hình (không tự thêm hậu tố).
+            let content = name.trim().to_string();
             d.transfer_content = Some(content.clone());
-            // Có config thì đề xuất cũng theo config (không giữ memo/mã lệnh Binance).
             d.suggested_transfer_content = Some(content);
         } else {
             d.suggested_transfer_content =
@@ -428,13 +429,13 @@ async fn build_payment_input(
     };
     let amount_vnd = amount_source.as_deref().and_then(vietqr::parse_vnd_amount);
 
-    // Có config → "{tên} chuyen tien" (không kèm mã lệnh). Không config → None
+    // Có config → dùng nguyên nội dung user nhập (giữ hoa/thường). Không config → None
     // để QR/app ngân hàng dùng mặc định.
     let transfer_content = payer_bank_name
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|name| format!("{name} chuyen tien"));
+        .map(|name| name.to_string());
 
     let qr_code_url = match (payload.bank_name.as_deref(), payload.account_no.as_deref()) {
         (Some(bank), Some(account)) => {
@@ -569,7 +570,7 @@ async fn handle_payment_detail(
     let payer_name = match state.creds_repo.payer_bank_name().await {
         Ok(name) => name,
         Err(e) => {
-            warn!(error = %e, "không đọc được tên chủ TK người chuyển");
+            warn!(error = %e, "không đọc được nội dung CK cấu hình");
             None
         }
     };
@@ -782,6 +783,7 @@ async fn main() {
     tauri::Builder::default()
         .setup(move |app| {
             let handle = app.handle().clone();
+            bot::init_logging(&handle);
 
             tauri::async_runtime::spawn(start_scheduler(
                 handle.clone(),
@@ -801,6 +803,7 @@ async fn main() {
             Ok(())
         })
         .manage(app_ctx)
+        .manage(bot::BotRuntime::default())
         .invoke_handler(tauri::generate_handler![
             store_api_credentials,
             update_payer_bank_name,
@@ -815,7 +818,12 @@ async fn main() {
             get_order_payment_detail,
             save_payment_detail,
             cleanup_old_payment_details,
-            clear_all_data
+            clear_all_data,
+            bot::get_bot_config,
+            bot::save_bot_config,
+            bot::get_bot_status,
+            bot::start_bot,
+            bot::stop_bot
         ])
         .run(tauri::generate_context!())
         .expect("lỗi khi chạy ứng dụng Tauri");

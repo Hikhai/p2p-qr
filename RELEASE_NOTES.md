@@ -1,5 +1,22 @@
 # Release Notes — Binance P2P Manager
 
+## v1.0.2
+
+### Bot SELL (mới)
+
+- Tab **Bot**: tự gửi tin chào + ảnh VietQR vào chat khi lệnh BÁN chờ thanh toán
+- Tin hoàn tất chỉ gửi khi detail = `COMPLETED` **và** `checkIfCanReleaseCoin = false` (không gửi lúc còn mở khóa)
+- Placeholder CK QR: `{ten_nguoi_mua}`, `{ma_lenh}`, `{so_tien}`; chuẩn hóa `Ð`/`Đ` → `D`
+- Dedup theo `bot_state.json`; upload ảnh chat (presign → CDN → WS `imageType=IMAGE`)
+- Log gọn trong panel bot
+
+### Docs
+
+- Cập nhật README, USER_GUIDE, ARCHITECTURE, WORKFLOW
+- Thêm [FLOW_CODE.md](./FLOW_CODE.md) — luồng hoạt động + file/hàm liên quan
+
+---
+
 ## v1.0.1
 
 ### Đồng bộ & trạng thái
@@ -14,8 +31,8 @@
 - HTTP bridge `127.0.0.1:1425` (không còn WebSocket)
 - Capture sớm khi vào trang thanh toán; placeholder order nếu chưa sync API
 - Ẩn QR sau khi status không còn “chờ thanh toán”
-- Nội dung CK / QR `addInfo`: `{tên chủ TK config} chuyen tien` (giữ hoa/thường); không gắn mã lệnh
-- Chưa config tên → QR không `addInfo` (mặc định app ngân hàng)
+- Nội dung CK / QR `addInfo`: nguyên chuỗi user cấu hình (giữ hoa/thường); không tự thêm `chuyen tien`
+- Chưa config → QR không `addInfo` (mặc định app ngân hàng)
 - Tắt log DEBUG mặc định; bỏ DOM scraper không dùng
 
 ### UI / bảo mật

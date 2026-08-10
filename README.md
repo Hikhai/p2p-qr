@@ -1,8 +1,8 @@
 # Binance P2P Manager
 
-Ứng dụng desktop Windows để quản lý lệnh Binance P2P: đồng bộ từ API, nhận STK/ngân hàng từ Chrome extension, và sinh mã VietQR chuyển khoản.
+Ứng dụng desktop Windows để quản lý lệnh Binance P2P: đồng bộ từ API, nhận STK/ngân hàng từ Chrome extension, sinh mã VietQR, và **bot tự động chat + QR cho lệnh BÁN**.
 
-**Version 1.0.1** · Windows 10/11 x64 · Tauri 2 + SvelteKit + Rust
+**Version 1.0.2** · Windows 10/11 x64 · Tauri 2 + SvelteKit + Rust
 
 ---
 
@@ -10,8 +10,9 @@
 
 - Đồng bộ lệnh BUY/SELL từ Binance C2C API (lần đầu theo số ngày, poll ~15s, incremental ~60s)
 - Map trạng thái đúng (`BUYER_PAYED` → chờ người bán xác nhận, …)
-- Chrome extension bắt thông tin thanh toán ngay khi vào trang CK trên Binance
-- Sinh VietQR; nội dung CK: `{tên chủ TK config} chuyen tien` (giữ đúng hoa/thường)
+- Chrome extension bắt thông tin thanh toán ngay khi vào trang CK trên Binance (BUY)
+- Sinh VietQR; nội dung CK/QR = nguyên chuỗi user cấu hình (giữ đúng hoa/thường)
+- **Bot SELL:** tự gửi tin chào + ảnh VietQR khi lệnh chờ thanh toán; tin cảm ơn chỉ khi giao dịch hoàn tất thật
 - Đổi API key → tự xoá dữ liệu tài khoản cũ, tránh trộn lệnh
 - API secret lưu trong Windows Credential Manager (không ghi rõ trong SQLite)
 
@@ -23,11 +24,13 @@
 p2p-qr/
 ├── fe/                 # UI SvelteKit (static → Tauri WebView)
 ├── p2p-extension/      # Chrome MV3 — hook network Binance → HTTP bridge
-├── src-tauri/          # Rust: sync, SQLite, VietQR, Axum :1425, keyring
+├── src-tauri/          # Rust: sync, SQLite, VietQR, Axum :1425, keyring, bot
+├── scripts/            # with-rust.cmd (PATH cargo trên Windows)
 ├── README.md           # Tổng quan (file này)
 ├── USER_GUIDE.md       # Hướng dẫn dùng + build installer/exe
 ├── ARCHITECTURE.md     # Kiến trúc & luồng dữ liệu
-├── WORKFLOW.md         # Quy trình mua / dev / release
+├── FLOW_CODE.md        # Luồng hoạt động + file/hàm code liên quan
+├── WORKFLOW.md         # Quy trình mua / bán bot / dev / release
 └── RELEASE_NOTES.md    # Changelog theo phiên bản
 ```
 
@@ -91,9 +94,10 @@ Chi tiết môi trường, lỗi PowerShell, và đóng gói extension: xem [USE
 
 | File | Nội dung |
 |------|----------|
-| [USER_GUIDE.md](./USER_GUIDE.md) | Cài đặt, cấu hình, quy trình mua, xử lý sự cố, build |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Thành phần, sync, payment path, status map |
-| [WORKFLOW.md](./WORKFLOW.md) | Vòng lặp user / dev / release |
+| [USER_GUIDE.md](./USER_GUIDE.md) | Cài đặt, cấu hình, BUY, bot SELL, xử lý sự cố, build |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Thành phần, sync, payment, bot, status map |
+| [FLOW_CODE.md](./FLOW_CODE.md) | Luồng runtime + chỉ tới file/hàm |
+| [WORKFLOW.md](./WORKFLOW.md) | Vòng lặp user / bot / dev / release |
 | [RELEASE_NOTES.md](./RELEASE_NOTES.md) | Ghi chú phiên bản |
 
 ---

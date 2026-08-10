@@ -172,8 +172,8 @@
                 {@const ckContent = paymentDetail.transfer_content || paymentDetail.suggested_transfer_content || ''}
                 <div class="detail-item highlight-item">
                   <div class="detail-content">
-                    <span class="label">Nội dung chuyển khoản:</span>
-                    <span class="value transfer-content">{ckContent}</span>
+                    <span class="label">Nội dung chuyển khoản đề xuất:</span>
+                    <span class="value transfer-content suggested-content">{ckContent}</span>
                   </div>
                   <button
                     class="copy-btn primary"

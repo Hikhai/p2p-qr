@@ -5,6 +5,7 @@
   import { fade, fly } from 'svelte/transition';
   import OrderTable from '../lib/OrderTable.svelte';
   import OrderDetail from '../lib/OrderDetail.svelte';
+  import BotPanel from '../lib/BotPanel.svelte';
   import ToastContainer, { toastSuccess, toastError, toast } from '../lib/ToastContainer.svelte';
   import { formatDateTime, timeAgo } from '../lib/format';
   import { isInProgress, type CredentialInfo, type Order } from '../lib/types';
@@ -14,7 +15,7 @@
   let label = "default";
   let orders: Order[] = [];
   let syncDays = 7;
-  let activeTab:'dashboard'|'buy'|'sell'|'inprogress'|'settings' = 'dashboard';
+  let activeTab:'dashboard'|'buy'|'sell'|'inprogress'|'bot'|'settings' = 'dashboard';
   let loading = false;
   let errorMsg = "";
   let selectedOrder: Order | null = null;
@@ -107,15 +108,15 @@
       return;
     }
     if (!payerBankName.trim()) {
-      toastError('Nhập tên chủ tài khoản ngân hàng (người chuyển)');
+      toastError('Nhập nội dung chuyển khoản');
       return;
     }
     try {
       await invoke('update_payer_bank_name', { payerBankName: payerBankName.trim() });
       await loadCredentialInfo();
-      toastSuccess('Đã lưu tên chủ TK người chuyển');
+      toastSuccess('Đã lưu nội dung chuyển khoản');
     } catch (e) {
-      toastError('Lưu tên chủ TK thất bại: ' + String(e));
+      toastError('Lưu nội dung CK thất bại: ' + String(e));
     }
   }
   async function testCreds() {
@@ -588,6 +589,7 @@ ul li {
   <button on:click={()=>activeTab='buy'} disabled={activeTab==='buy'}>Lệnh mua</button>
   <button on:click={()=>activeTab='sell'} disabled={activeTab==='sell'}>Lệnh bán</button>
   <button on:click={()=>activeTab='inprogress'} disabled={activeTab==='inprogress'}>Đang xử lý</button>
+  <button on:click={()=>activeTab='bot'} disabled={activeTab==='bot'}>Bot bán</button>
   <button on:click={()=>activeTab='settings'} disabled={activeTab==='settings'}>Cài đặt</button>
   <span style="margin-left:12px;opacity:.8;font-size:12px;">Đồng bộ cuối: {formatDateTime(lastSync)}</span>
 </nav>
@@ -679,6 +681,10 @@ ul li {
   <OrderTable list={inProgressOrders} onOrderClick={handleOrderClick} />
 {/if}
 
+{#if activeTab==='bot'}
+  <BotPanel />
+{/if}
+
 {#if activeTab==='settings'}
   <div transition:fade>
     <div style="max-width: 700px;">
@@ -747,23 +753,23 @@ ul li {
         </label>
 
         <label style="margin-top:16px;">
-          <span>Tên chủ TK ngân hàng (người chuyển):</span>
+          <span>Nội dung chuyển khoản:</span>
           <p style="color:#9ca3af; font-size:12px; margin:6px 0 0;">
             Nhập đúng chữ hoa/thường như trên thẻ/TK — nội dung CK và QR giữ nguyên:
-            <code style="color:#fbbf24;">{'{tên} chuyen tien'}</code>
+            <code style="color:#fbbf24;">{'{nội dung}'}</code>
           </p>
           <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
             <input
               bind:value={payerBankName}
               type="text"
-              placeholder="VD: NGUYEN VAN A hoặc Nguyen Van A"
+              placeholder="VD: TRAN DUC HIEU chuyen tien"
               autocomplete="off"
               spellcheck="false"
               style="flex:1; font-family: monospace; box-sizing:border-box;"
             />
             {#if credentialsSaved}
               <button type="button" on:click={savePayerBankName} style="white-space:nowrap;">
-                Lưu tên
+                Lưu nội dung
               </button>
             {/if}
           </div>

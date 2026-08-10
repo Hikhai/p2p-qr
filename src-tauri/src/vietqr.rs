@@ -1,6 +1,6 @@
 //! Sinh URL ảnh QR chuyển khoản theo chuẩn VietQR.
 //!
-//! - Có cấu hình tên người chuyển → gửi `addInfo={tên} chuyen tien` vào QR.
+//! - Có cấu hình nội dung CK → gửi nguyên `addInfo={nội dung}` vào QR.
 //! - Không cấu hình → bỏ `addInfo` để app ngân hàng dùng nội dung mặc định.
 
 use tracing::debug;
@@ -14,11 +14,23 @@ const TEMPLATE: &str = "compact2";
 ///
 /// `add_info`: nội dung chuyển khoản nhúng trong QR (chỉ khi user đã cấu hình).
 /// Không được chứa mã lệnh.
+/// `account_name`: tên chủ TK (tuỳ chọn) — dùng khi gửi QR cho người mua (bot SELL).
 pub fn image_url(
     bank_name: &str,
     account_no: &str,
     amount_vnd: Option<i64>,
     add_info: Option<&str>,
+) -> Option<String> {
+    image_url_with_account_name(bank_name, account_no, amount_vnd, add_info, None)
+}
+
+/// Như [`image_url`], thêm `accountName` vào query khi có tên chủ tài khoản.
+pub fn image_url_with_account_name(
+    bank_name: &str,
+    account_no: &str,
+    amount_vnd: Option<i64>,
+    add_info: Option<&str>,
+    account_name: Option<&str>,
 ) -> Option<String> {
     let bin = banks::bank_bin(bank_name)?;
     let account = sanitize_account_no(account_no)?;
@@ -28,6 +40,9 @@ pub fn image_url(
     let mut params: Vec<String> = Vec::new();
     if let Some(amount) = amount_vnd.filter(|a| *a > 0) {
         params.push(format!("amount={amount}"));
+    }
+    if let Some(name) = account_name.map(str::trim).filter(|s| !s.is_empty()) {
+        params.push(format!("accountName={}", urlencoding::encode(name)));
     }
     if let Some(info) = sanitize_add_info(add_info) {
         params.push(format!("addInfo={}", urlencoding_loose(&info)));
@@ -210,19 +225,19 @@ mod tests {
             "Vietcombank",
             "1234567890",
             Some(200_000),
-            Some("TRAN DUC HIEU chuyen tien"),
+            Some("TRAN DUC HIEU"),
         )
         .unwrap();
         assert!(url.contains("amount=200000"));
-        assert!(url.contains("addInfo=TRAN%20DUC%20HIEU%20chuyen%20tien"));
+        assert!(url.contains("addInfo=TRAN%20DUC%20HIEU"));
         assert!(!url.contains("173952"));
     }
 
     #[test]
     fn strips_trailing_order_number_from_add_info() {
         assert_eq!(
-            sanitize_add_info(Some("TRAN DUC HIEU chuyen tien 173952")).as_deref(),
-            Some("TRAN DUC HIEU chuyen tien")
+            sanitize_add_info(Some("TRAN DUC HIEU 173952")).as_deref(),
+            Some("TRAN DUC HIEU")
         );
     }
 
