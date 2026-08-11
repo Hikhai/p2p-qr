@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "P2P Assistant Bridge",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Hook network Binance P2P và gửi dữ liệu lệnh về ứng dụng local (chỉ đọc).",
   "host_permissions": [
     "https://p2p.binance.com/*",

@@ -12,6 +12,8 @@ vite.config.ts.timestamp-*
 /fe/.svelte-kit/
 /fe/dist/
 /dist/
+/dist-customer/
+/Binance-P2P-Manager-*.zip
 /build/
 /.svelte-kit/
 

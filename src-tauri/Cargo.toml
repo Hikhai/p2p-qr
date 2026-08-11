@@ -1,6 +1,6 @@
 [package]
 name = "p2p-qr"
-version = "1.0.1"
+version = "1.0.2"
 description = "Quản lý lệnh Binance P2P và sinh QR chuyển khoản VietQR"
 authors = ["Hikhai"]
 edition = "2021"
@@ -37,6 +37,14 @@ base64 = "0.22"
 # Log có cấp độ, thay cho println!
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Bot SELL: WebSocket chat Binance + upload QR
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures = "0.3"
+uuid = { version = "1", features = ["v4"] }
+urlencoding = "2.1"
+# VietQR trả PNG — chuyển sang JPEG thật trước khi upload chat Binance
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 [features]
 default = ["custom-protocol"]

@@ -85,10 +85,10 @@ impl CredentialsRepo {
         Ok(())
     }
 
-    /// Cập nhật tên chủ TK người chuyển mà không đụng API key/secret.
+    /// Cập nhật nội dung CK cấu hình mà không đụng API key/secret.
     pub async fn update_payer_bank_name(&self, payer_bank_name: &str) -> Result<()> {
         let Some(mut record) = self.read_record().await? else {
-            return Err(anyhow!("chưa có credentials để cập nhật tên chủ TK"));
+            return Err(anyhow!("chưa có credentials để cập nhật nội dung CK"));
         };
         record.payer_bank_name = normalize_payer_name(Some(payer_bank_name.trim().to_string()));
         Self::entry()?

@@ -1,15 +1,15 @@
 {
   "name": "binance-p2p-manager",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Quản lý giao dịch Binance P2P với tính năng đồng bộ tự động",
   "type": "module",
   "scripts": {
     "fe:dev": "npm --prefix fe run dev",
     "fe:build": "npm --prefix fe run build",
     "fe:check": "npm --prefix fe run check",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri": "scripts\\with-rust.cmd tauri",
+    "tauri:dev": "scripts\\with-rust.cmd tauri dev",
+    "tauri:build": "scripts\\with-rust.cmd tauri build"
   },
   "author": "Hikhai",
   "license": "MIT",

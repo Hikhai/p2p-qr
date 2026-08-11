@@ -1,8 +1,8 @@
 # Binance P2P Manager — Hướng dẫn sử dụng
 
-**Version 1.0.1** · Windows 10/11 64-bit
+**Version 1.0.2** · Windows 10/11 64-bit
 
-Tài liệu này dành cho người dùng cuối và người build từ source. Tổng quan kỹ thuật: [README.md](./README.md), [ARCHITECTURE.md](./ARCHITECTURE.md).
+Tài liệu này dành cho người dùng cuối và người build từ source. Tổng quan: [README.md](./README.md) · kiến trúc: [ARCHITECTURE.md](./ARCHITECTURE.md) · luồng code: [FLOW_CODE.md](./FLOW_CODE.md).
 
 ---
 
@@ -10,9 +10,11 @@ Tài liệu này dành cho người dùng cuối và người build từ source.
 
 ### Bản build sẵn
 
-1. Chạy file `.msi` hoặc installer NSIS (`.exe`) từ bản phát hành.
+1. Chạy installer **NSIS** (`Binance P2P Manager_x.x.x_x64-setup.exe`) hoặc `.msi` — **không** chạy tay file `p2p-qr.exe` tách rời.
 2. Mở **Binance P2P Manager** từ Start Menu / Desktop.
 3. Giữ thư mục `p2p-extension/` kèm theo để load vào Chrome (mục 2.3).
+
+> **Lỗi `WebView2Loader.dll was not found`:** thường do mở `p2p-qr.exe` một mình (thiếu DLL cạnh exe). Dùng installer NSIS, hoặc copy cả `p2p-qr.exe` **và** `WebView2Loader.dll` trong cùng thư mục. Máy cũng cần [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (Windows 10/11 thường đã có).
 
 ### Build từ source
 
@@ -27,7 +29,7 @@ Xem **mục 7**.
 1. Binance → **API Management** → tạo key quyền **Read** (không cần rút tiền / trade).
 2. Trong app → tab **Cài đặt**:
    - Nhập **API Key** + **API Secret**
-   - (Khuyến nghị) **Tên chủ TK ngân hàng (người chuyển)** — nhập đúng chữ hoa/thường như trên thẻ hoặc app ngân hàng
+   - (Khuyến nghị) **Nội dung chuyển khoản** — nhập đủ nội dung muốn dùng trên CK/QR, đúng chữ hoa/thường
    - **Lưu Credentials** → **Test Kết Nối**
 
 Đổi sang API key tài khoản khác: app **tự xoá lệnh/sync cũ** rồi đồng bộ lại — không bị trộn dữ liệu.
@@ -57,12 +59,12 @@ Xem **mục 7**.
 
 ### Nội dung chuyển khoản
 
-| Config tên chủ TK | Nội dung CK / QR `addInfo` |
-|-------------------|----------------------------|
-| Đã cấu hình | `{tên đã lưu} chuyen tien` — giữ đúng hoa/thường như đã nhập |
+| Config nội dung CK | Nội dung CK / QR `addInfo` |
+|--------------------|----------------------------|
+| Đã cấu hình | Dùng nguyên `{nội dung}` đã lưu — giữ đúng hoa/thường |
 | Chưa cấu hình | QR không gắn `addInfo` — app ngân hàng dùng mặc định |
 
-Không nhúng mã lệnh vào nội dung CK.
+Không tự thêm hậu tố; không nhúng mã lệnh vào nội dung CK.
 
 Ô **Nội dung chuyển khoản đề xuất** trong chi tiết lệnh dùng cùng quy tắc trên.
 
@@ -90,7 +92,25 @@ Không nhúng mã lệnh vào nội dung CK.
 | **Lệnh mua** | Danh sách BUY |
 | **Lệnh bán** | Danh sách SELL |
 | **Đang xử lý** | Lệnh chưa kết thúc |
-| **Cài đặt** | API, tên chủ TK, đồng bộ theo ngày, xoá dữ liệu |
+| **Bot** | Auto chat + QR cho lệnh BÁN (start/stop, tin nhắn, log) |
+| **Cài đặt** | API, nội dung CK (BUY), đồng bộ theo ngày, xoá dữ liệu |
+
+---
+
+## 5b. Bot lệnh bán (SELL)
+
+1. Vào tab **Bot** (cần đã lưu API key ở Cài đặt).
+2. Cấu hình:
+   - **Tin chào** — gửi khi lệnh mới chờ thanh toán
+   - **Nội dung CK trong QR** — placeholder: `{ten_nguoi_mua}`, `{ma_lenh}`, `{so_tien}` (để trống = mặc định ngân hàng)
+   - **Tin hoàn tất** — chỉ gửi khi giao dịch đã xong thật
+   - (Tuỳ chọn) tài khoản ngân hàng dự phòng nếu lệnh thiếu `payMethods`
+3. Bấm **Bắt đầu** — bot poll lệnh SELL và lắng nghe chat WebSocket.
+4. Khi có lệnh `TRADING`: gửi tin chào + ảnh VietQR vào chat Binance.
+5. Tin cảm ơn **không** gửi lúc buyer mới báo đã trả / còn nút mở khóa; chỉ sau khi lệnh hoàn tất và không còn mở khóa được.
+6. Nên tắt trả lời tự động (auto-reply) trên Binance để tránh tin trùng với bot.
+
+State bot: `%LOCALAPPDATA%\BinanceP2PManager\bot_config.json`, `bot_state.json`.
 
 ---
 
@@ -100,15 +120,19 @@ Không nhúng mã lệnh vào nội dung CK.
 |-------------|------------|
 | Extension không gửi được | App đang chạy? Health `127.0.0.1:1425/api/health` → `ok`. Reload extension. |
 | Chưa có QR | Lệnh BUY + status chờ thanh toán; đã vào trang thanh toán Binance; ngân hàng có trong map VietQR. |
-| QR sai nội dung CK | Sửa tên chủ TK trong **Cài đặt** → mở lại chi tiết lệnh. |
+| QR sai nội dung CK | Sửa **Nội dung chuyển khoản** trong Cài đặt → mở lại chi tiết lệnh. |
 | Đổi tài khoản vẫn thấy lệnh cũ | Lưu API key mới (app sẽ clear). Hoặc **Xóa toàn bộ dữ liệu** rồi đồng bộ lại. |
 | Không sync | **Test Kết Nối**; kiểm tra mạng / IP whitelist Binance API. |
+| `WebView2Loader.dll was not found` | Cài bằng NSIS/MSI, hoặc để `WebView2Loader.dll` cùng thư mục với `p2p-qr.exe`. |
+| Bot không gửi tin1/QR | Bot đang chạy? Chat WS đã kết nối (log)? Lệnh còn `TRADING`? |
+| QR CK thiếu chữ (vd. TRAN UC…) | Dùng bản ≥1.0.2 (chuẩn hóa `Ð`→`D`); kiểm tra placeholder `{ten_nguoi_mua}`. |
+| Tin cảm ơn gửi sớm | Cần bản ≥1.0.2 (verify `checkIfCanReleaseCoin`); tắt auto-reply Binance. |
 | `npm` lỗi Execution Policy | Dùng `npm.cmd` hoặc `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. |
 | `rustup` / `cargo` not recognized | Thêm `%USERPROFILE%\.cargo\bin` vào PATH User, mở lại terminal. |
 
 ### Dữ liệu local
 
-- SQLite: thư mục data app (`%LOCALAPPDATA%\BinanceP2PManager`) — không copy lung tung khi còn secret trong process.
+- SQLite + bot config/state: `%LOCALAPPDATA%\BinanceP2PManager`
 - Credentials: Windows Credential Manager (`p2p-qr.binance-api`).
 
 ---
@@ -127,7 +151,7 @@ Không nhúng mã lệnh vào nội dung CK.
      ```powershell
      rustup default stable-x86_64-pc-windows-msvc
      ```
-   - Hoặc giữ `windows-gnu` nếu đã có MinGW/linker đầy đủ
+   - Hoặc giữ `windows-gnu` nếu đã có MinGW đầy đủ (`dlltool.exe` trong PATH, ví dụ `C:\mingw64\bin`)
 5. WiX / NSIS — Tauri thường tự kéo khi bundle
 
 ### Lỗi PowerShell thường gặp
